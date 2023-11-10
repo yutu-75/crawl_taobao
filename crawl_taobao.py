@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 import hashlib
@@ -32,6 +33,7 @@ class CrawlTaoBao:
             # 'isg': 'BB0dLh-OJPY-dsDauvWnwbDTLPkXOlGM_8mxTN_iXnSjlj3Ip4sZXOGAwIqQDmlE',
         }
         self.update_cookies()
+        self.create_folder_if_not_exists()
 
     def get_sign(self, data):
         """
@@ -75,6 +77,31 @@ class CrawlTaoBao:
         )
         self.cookies["_m_h5_tk"] = response.cookies.get("_m_h5_tk")
         self.cookies["_m_h5_tk_enc"] = response.cookies.get("_m_h5_tk_enc")
+
+    @staticmethod
+    def create_folder_if_not_exists(folder_path="images"):
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+            print(f"文件夹 '{folder_path}' 创建成功！")
+        else:
+            print(f"文件夹 '{folder_path}' 已存在，无需创建。")
+
+    def download_img(self, url):
+        """
+        下载图片
+        Args:
+            url:
+
+        Returns:
+
+        """
+        img_name = url.split("/")[-1]
+        response = requests.get(url, cookies=self.cookies, headers=self.headers)
+
+        if response.status_code == 200:
+            with open(f"images/{img_name}.jpg", 'wb') as file:
+                file.write(response.content)
+            return url
 
     def search_commodity(self, name="女装", page_count=1, page_size=60):
         """
@@ -123,16 +150,19 @@ class CrawlTaoBao:
         commodity_information_list = []
         for item in data:
             dict1 = {
-                "item_name": item['itemName'],                                      # 衣服名字
-                "pic": item['pic'],                                                 # 图片
-                "price": item['price'],                                             # 价格
-                "monthSellCountFuzzyString": item['monthSellCountFuzzyString'],     # 月售
-                "provcity": item['provcity'],                                       # 产地
-                "item_id": item['itemId'],                                          # itemId
+                "item_name": item['itemName'],                                          # 衣服名字
+                "pic": item['pic'],                                                     # 图片
+                "price": item['price'],                                                 # 价格
+                "monthSellCountFuzzyString": item['monthSellCountFuzzyString'],         # 月售
+                "provcity": item['provcity'],                                           # 产地
+                "item_id": item['itemId'],                                              # itemId
+                "item_url":  f'https://item.taobao.com/item.htm?id={item["itemId"]}',   # itemId
+
             }
+
             dict2 = self.get_detail(item['itemId'])
             dict1.update(dict2)
-
+            self.download_img(item['pic'])
             commodity_information_list.append(dict1)
             print(dict1)
         print(commodity_information_list, len(commodity_information_list))
@@ -148,7 +178,7 @@ class CrawlTaoBao:
             f'https://item.taobao.com/item.htm?id={item_id}&ali_refid=a3_430582_1006:1110306571:N:emtiAWsF8%2Bzhhxaiwzc0Aw%3D%3D:2217fe1dd3fb55ad9851f45c3c3444f1&ali_trackid=1_2217fe1dd3fb55ad9851f45c3c3444f1&spm=a21n57.1.0.0',
             cookies=self.cookies, headers=self.headers)
         html = response.text
-        # print(html, f'https://item.taobao.com/item.htm?id={item_id}&ali_refid=a3_430582_1006:1110306571:N:emtiAWsF8%2Bzhhxaiwzc0Aw%3D%3D:2217fe1dd3fb55ad9851f45c3c3444f1&ali_trackid=1_2217fe1dd3fb55ad9851f45c3c3444f1&spm=a21n57.1.0.0')
+
         soup = BeautifulSoup(html, "html.parser")
         attributes_html = soup.findAll("ul", attrs={"class": "attributes-list"})
 
@@ -219,6 +249,8 @@ class CrawlTaoBao:
 if __name__ == '__main__':
     crawl_taobao = CrawlTaoBao()
     print(f"cookie>>>>>>:\n{crawl_taobao.cookies}\n")
+
+    # crawl_taobao.download_img('https://img.alicdn.com/imgextra/i1/31774561/O1CN01HHHX5d1jYzBhuQx7Z_!!0-saturn_solar.jpg')
     # crawl_taobao.get_detail("640513959729")
     # crawl_taobao.search_commodity("衣服", 1, 60)
     crawl_taobao.search_commodity("女装")
