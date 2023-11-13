@@ -7,9 +7,13 @@ import requests
 from fake_useragent import UserAgent
 from bs4 import BeautifulSoup
 
+from configurations import config
+from db.redis.redis_data_client import RedisClient
+
 
 class CrawlTaoBao:
     def __init__(self):
+        self.redis_client = RedisClient()
         self.t = int(time.time() * 1000)
         self.app_key = "12574478"
         self.headers = {
@@ -23,15 +27,21 @@ class CrawlTaoBao:
             'sec-fetch-dest': 'script',
             'sec-fetch-mode': 'no-cors',
             'sec-fetch-site': 'same-site',
-            'user-agent': UserAgent().random        # 随机生成一个User-Agent
+            'user-agent': UserAgent().random  # 随机生成一个User-Agent
         }
 
         # Todo ["cna","sgcookie"] 生成方法没写, 待写...
         self.cookies = {
+
+            # 'cna': 'fHKVHZ23KEMCARsLEYfFlegU',
+            # 'sgcookie': 'E100fRiNqBPwDU36l9G1AiXsLbBcnOLqqJ1Xu%2BgWIgP2r%2B1s6bw8jOLpFJEmWTcWhCFSLVHJeetttNAZdmAQRDy4AEOzBLFohJpDVTHik4ifkJICcS7JFQ5AqZUQp1gyC%2Fmc',
             'cna': 'fHKVHZ23KEMCARsLEYfFlegU',
             'sgcookie': 'E100fRiNqBPwDU36l9G1AiXsLbBcnOLqqJ1Xu%2BgWIgP2r%2B1s6bw8jOLpFJEmWTcWhCFSLVHJeetttNAZdmAQRDy4AEOzBLFohJpDVTHik4ifkJICcS7JFQ5AqZUQp1gyC%2Fmc',
-            # 'isg': 'BB0dLh-OJPY-dsDauvWnwbDTLPkXOlGM_8mxTN_iXnSjlj3Ip4sZXOGAwIqQDmlE',
+            # 'x5sec': '7b22617365727665723b32223a226133336563663764393133633035316461363835636264616561653338353538434a375974366f47454e4f786e6f6a352f2f2f2f2f774561444449334e7a67344d5455334e5467374e5443516f6357652b2f2f2f2f2f384251414d3d222c22733b32223a2235633535616530396134343065303537227d',
+            'x5sec': '7b22617365727665723b32223a223163643963643630376133336634653030316635336539383261393064613632434c7678794b6f47454e4f61774d48362f2f2f2f2f774561444449334e7a67344d5455334e5467374e4443516f6357652b2f2f2f2f2f384251414d3d222c22733b32223a2233303538376262316137373061366531227d; tfstk=duxHEox9Ie7CU_1HlXIIYkbrZk3TAWs5aQERwgCr7156puHBpFXywCMSdMpPZQAO1pE-',
+
         }
+
         self.update_cookies()
         self.create_folder_if_not_exists()
 
@@ -103,7 +113,7 @@ class CrawlTaoBao:
                 file.write(response.content)
             return url
 
-    def search_commodity(self, name="女装", page_count=1, page_size=60):
+    def search_commodity(self, name="女装", page_count=1, page_size=48):
         """
         Args:
             name:
@@ -116,66 +126,42 @@ class CrawlTaoBao:
         """
 
         data = str({
-            "pNum": page_count,
-            "pSize": f"{page_size}",
-            "refpid": "mm_26632258_3504122_32538762",
-            "variableMap": str({"q": f"{name}"}),
-            "qieId": "36308"
+            "appId": "34385",
+            "params": f'{{"device":"HMA-AL00","isBeta":"false","grayHair":"false","from":"nt_history","brand":"HUAWEI","info":"wifi","index":"4","rainbow":"","schemaType":"auction","elderHome":"false","isEnterSrpSearch":"true","newSearch":"false","network":"wifi","subtype":"","hasPreposeFilter":"false","prepositionVersion":"v2","client_os":"Android","gpsEnabled":"false","searchDoorFrom":"srp","debug_rerankNewOpenCard":"false","homePageVersion":"v7","searchElderHomeOpen":"false","search_action":"initiative","sugg":"_4_1","sversion":"13.6","style":"list","ttid":"600000@taobao_pc_10.7.0","needTabs":"true","areaCode":"CN","vm":"nw","countryNum":"156","m":"pc","page":{page_count},"n":48,"q":"{name}","tab":"all","pageSize":"{page_size}","totalPage":"100","totalResults":"141297","sourceS":"0","sort":"_coefp","bcoffset":"-3","ntoffset":"3","filterTag":"","service":"","prop":"","loc":"","start_price":null,"end_price":null,"startPrice":null,"endPrice":null}}'
         })
-
         params = {
-            'jsv': '2.5.1',
+            'jsv': '2.6.2',
             'appKey': self.app_key,
             't': self.t,
             'sign': self.get_sign(data),
-            'api': 'mtop.alimama.union.xt.en.api.entry',
-            'v': '1.0',
-            'AntiCreep': 'true',
-            'timeout': '20000',
-            'AntiFlood': 'true',
-            'type': 'jsonp',
+            'api': 'mtop.relationrecommend.WirelessRecommend.recommend',
+            'v': '2.0',
             'dataType': 'jsonp',
-            'callback': 'mtopjsonp3',
+            'callback': 'mtopjsonp2',
             'data': data
         }
 
         response = requests.get(
-            'https://h5api.m.taobao.com/h5/mtop.alimama.union.xt.en.api.entry/1.0/',
+            'https://h5api.m.taobao.com/h5/mtop.relationrecommend.wirelessrecommend.recommend/2.0/',
             params=params,
             cookies=self.cookies,
             headers=self.headers,
         )
 
-        data = self.parse_json_from_string(response.text)['data']["recommend"]["resultList"]
-        commodity_information_list = []
-        for item in data:
-            dict1 = {
-                "item_name": item['itemName'],                                          # 衣服名字
-                "pic": item['pic'],                                                     # 图片
-                "price": item['price'],                                                 # 价格
-                "monthSellCountFuzzyString": item['monthSellCountFuzzyString'],         # 月售
-                "provcity": item['provcity'],                                           # 产地
-                "item_id": item['itemId'],                                              # itemId
-                "item_url":  f'https://item.taobao.com/item.htm?id={item["itemId"]}',   # itemId
+        response_data = response.json()
 
-            }
+        return response_data
 
-            dict2 = self.get_detail(item['itemId'])
-            dict1.update(dict2)
-            self.download_img(item['pic'])
-            commodity_information_list.append(dict1)
-            print(dict1)
-        print(commodity_information_list, len(commodity_information_list))
-        return commodity_information_list
-
-    def get_detail(self, item_id="611658999337"):
+    def get_detail(self, item_url):
         """
         获取商品详细信息:
         Returns:
 
         """
+        # TODO 天猫页面的爬虫没有写
+        # https://detail.tmall.com/item.htm?abbucket=0&id=726611072140&ns=1&sku_properties=1627207:1553005176
         response = requests.get(
-            f'https://item.taobao.com/item.htm?id={item_id}&ali_refid=a3_430582_1006:1110306571:N:emtiAWsF8%2Bzhhxaiwzc0Aw%3D%3D:2217fe1dd3fb55ad9851f45c3c3444f1&ali_trackid=1_2217fe1dd3fb55ad9851f45c3c3444f1&spm=a21n57.1.0.0',
+            item_url,
             cookies=self.cookies, headers=self.headers)
         html = response.text
 
@@ -245,19 +231,70 @@ class CrawlTaoBao:
         # Todo 写解析出来的数据存到数据库里
         ...
 
+    def data_to_redis(self, data):
+
+        data = data['data']["itemsArray"]
+        commodity_information_list = []
+        for item in data:
+            dict1 = {
+                "item_name": item['title'],  # 衣服名字
+                "pic": item['pic_path'],  # 图片
+                "price": item['price'],  # 价格
+                "real_sales": item['realSales'],  # 月售
+                "procity": item['procity'],  # 产地
+                "item_id": item['item_id'],  # item_id
+                "item_url": "https:" + item["auctionURL"] if "https" not in item["auctionURL"] else item["auctionURL"],
+                # itemId
+
+            }
+            if self.redis_client.json_get(dict1["item_id"]):
+                continue
+
+            dict2 = self.get_detail(dict1['item_url'])
+
+            dict1.update(dict2)
+            if dict2:
+                self.redis_client.json_set(dict1["item_id"], dict1)
+            print(
+                f"详细信息:{dict2},获取不到详细信息,请去点击item_url查看原因或者修改get_detail方法. \n完整信息:{dict1}\n")
+
+        return commodity_information_list
+
+    def get_redis_keys(self):
+        """
+        获取redis里所有的key
+        Returns:
+
+        """
+        return self.redis_client.keys(f"{config.get('house', 'house_name')}*")
+
+    def get_redis_data(self):
+        """
+        获取redis数据库里全部的数据.
+        Returns:
+
+        """
+
+        result_list = []
+        for key in self.get_redis_keys():
+            value = self.redis_client.json_get(key)
+            print(value)
+            result_list.append(value)
+
+        return result_list
+
 
 if __name__ == '__main__':
     crawl_taobao = CrawlTaoBao()
     print(f"cookie>>>>>>:\n{crawl_taobao.cookies}\n")
 
     # crawl_taobao.download_img('https://img.alicdn.com/imgextra/i1/31774561/O1CN01HHHX5d1jYzBhuQx7Z_!!0-saturn_solar.jpg')
-    # crawl_taobao.get_detail("640513959729")
-    # crawl_taobao.search_commodity("衣服", 1, 60)
-    crawl_taobao.search_commodity("女装")
-    # print(crawl_taobao.get_detail("702507248639"))
-    # print(content)
-    # detail=[]
-    # for itemid in itemId:
-    #     print(itemid)
-    #     detail.append(crawl_taobao.get_detail(itemid))
-    # print(detail)
+    # print(crawl_taobao.get_detail('https://click.simba.taobao.com/cc_im?p=%C5%AE%D7%B0&s=1709035793&k=845&e=v9sz85SYZ5A0JfADfC6GWNxq5XLbBhQqVkRa8TNEc9IGOLJ5waFYhr5iyOqoaigMotelTNSsD6OCpx7zDFWcEPpIPHv0qsIfM2tOEc0D1gibkb9DnRz6VneSKZQTAavpB2Txvn0h9zleCi6NAhmKNzx%2FQU1Tp6q3cHvoApmO7DaIqUUqzt8KYojv3nPbxRjrEwULzM%2BQCI2kb%2FwbG5zQ9F8G6TwsUX7GbaDNN2nPTZu7JkSqBObwtK9EYydVOmgLYoxzDnOQDPMUbLAJ1Q7wWZ8lKKwdJrktpDcwnHrMIMtdsljuu0gFXZsiXrgHYzizzGXd%2FPULTQkddGmv%2FEKpBSsmKBt%2FpTo66%2Fyo3i3EGJZfDklV%2F%2BL82BSQ3SyRWOUnWhIrW0TCNZF9pzA4bRPxmk8RR1ro3LNohJKxWlNM%2Bg8rtiA7WGYkxbIon1wABBlauAFaNoZvkA1Xi3qqaETRE1Edu9rX%2Bn6NXwCdbKJbygxW7zJ7DBceY1D5Ed2ivtUZhyiDkI3cbCxLTqWB3lm2EzEkpa9HDCwGjy0csr5IR9C1jx4fMUdjwmeD2wc27UPPD5xHP5FqpNhsnMf23niJaNdwOHosLhwc8PqLrOBs8FgC0BvNnAStPNcFnvAIbBG9oplUFNPjCnXFBy8jE8vS39%2FR3JTOQseoqL%2BypBSzrnFzTuIgYVouD5Dy08icAZr1LNzKt3lzp6hkKIh3HpEephoGoJjFB69EC5QBK3XeVEQ8Sxr67zuEW6zgOqtty8rYF0zFzBKnKIiKn0NEfWlBien6iz1NxWZIX67uFDTqTAsZFQ1O8aijFixj2GxdCR%2BYNdfOJB5mj8k%3D#detail'))
+
+    for i in range(5):
+        result = crawl_taobao.search_commodity("女装", i, 60)
+        crawl_taobao.data_to_redis(result)
+
+    # 获取redis数据
+    print(len(crawl_taobao.get_redis_data()))
+    # print(crawl_taobao.get_redis_keys(), len(set(crawl_taobao.get_redis_keys())))
