@@ -6,9 +6,11 @@ import hashlib
 import requests
 from fake_useragent import UserAgent
 from bs4 import BeautifulSoup
+import pandas as pd
 
 from configurations import config
 from db.redis.redis_data_client import RedisClient
+from urllib.parse import urlparse, parse_qs
 
 
 class CrawlTaoBao:
@@ -127,7 +129,7 @@ class CrawlTaoBao:
 
         data = str({
             "appId": "34385",
-            "params": f'{{"device":"HMA-AL00","isBeta":"false","grayHair":"false","from":"nt_history","brand":"HUAWEI","info":"wifi","index":"4","rainbow":"","schemaType":"auction","elderHome":"false","isEnterSrpSearch":"true","newSearch":"false","network":"wifi","subtype":"","hasPreposeFilter":"false","prepositionVersion":"v2","client_os":"Android","gpsEnabled":"false","searchDoorFrom":"srp","debug_rerankNewOpenCard":"false","homePageVersion":"v7","searchElderHomeOpen":"false","search_action":"initiative","sugg":"_4_1","sversion":"13.6","style":"list","ttid":"600000@taobao_pc_10.7.0","needTabs":"true","areaCode":"CN","vm":"nw","countryNum":"156","m":"pc","page":{page_count},"n":48,"q":"{name}","tab":"all","pageSize":"{page_size}","totalPage":"100","totalResults":"141297","sourceS":"0","sort":"_coefp","bcoffset":"-3","ntoffset":"3","filterTag":"","service":"","prop":"","loc":"","start_price":null,"end_price":null,"startPrice":null,"endPrice":null}}'
+            "params": f'{{"device":"HMA-AL00","isBeta":"false","grayHair":"false","from":"nt_history","brand":"HUAWEI","info":"wifi","index":"4","rainbow":"","schemaType":"auction","elderHome":"false","isEnterSrpSearch":"true","newSearch":"false","network":"wifi","subtype":"","hasPreposeFilter":"false","prepositionVersion":"v2","client_os":"Android","gpsEnabled":"false","searchDoorFrom":"srp","debug_rerankNewOpenCard":"false","homePageVersion":"v7","searchElderHomeOpen":"false","search_action":"initiative","sugg":"_4_1","sversion":"13.6","style":"list","ttid":"600000@taobao_pc_10.7.0","needTabs":"true","areaCode":"CN","vm":"nw","countryNum":"156","m":"pc","page":{page_count},"n":{page_size},"q":"{name}","tab":"all","pageSize":"{page_size}","totalPage":"100","totalResults":"141297","sourceS":"0","sort":"_coefp","bcoffset":"-3","ntoffset":"3","filterTag":"","service":"","prop":"","loc":"","start_price":null,"end_price":null,"startPrice":null,"endPrice":null}}'
         })
         params = {
             'jsv': '2.6.2',
@@ -152,7 +154,7 @@ class CrawlTaoBao:
 
         return response_data
 
-    def get_detail(self, item_url):
+    def get_detail_taobao(self, item_url):
         """
         获取商品详细信息:
         Returns:
@@ -195,6 +197,66 @@ class CrawlTaoBao:
 
         return details
 
+    def get_detail_tianmao(self, item_url, item_id=None):
+
+        parsed_url = urlparse(item_url)
+        query_parameters = parse_qs(parsed_url.query)
+        item_id = query_parameters.get('id') if query_parameters.get('id') else item_id
+        abbucket = query_parameters.get('abbucket')
+        ns = query_parameters.get('ns')
+        data = str({
+            "id": item_id,
+            "detail_v": "3.3.2",
+            "exParams": str({
+                "abbucket": abbucket,
+                "id": item_id,
+                "ns": f"{query_parameters.get('ns')}",
+                "queryParams": f"abbucket={abbucket}&id={item_id}&ns={ns}",
+                "domain": "https://detail.tmall.com",
+                "path_name": "/item.htm"})
+        })
+        params = {
+            'jsv': '2.6.2',
+            'appKey': self.app_key,
+            't': self.t,
+            'sign': self.get_sign(data),
+            'api': 'mtop.relationrecommend.WirelessRecommend.recommend',
+            'v': '2.0',
+            'dataType': 'jsonp',
+            'callback': 'mtopjsonp2',
+            'data': data
+        }
+        response = requests.get(
+            'https://h5api.m.tmall.com/h5/mtop.taobao.pcdetail.data.get/1.0/',
+            params=params,
+            cookies=self.cookies,
+            headers=self.headers,
+        ).text
+        response_data = self.parse_json_from_string(response)
+
+        details = {
+            "season": None,
+            "style": None,
+            "fabric": None,
+            "applicable_age": None,
+
+        }
+        # print(response)
+        response_data_details = response_data["data"]["props"]["groupProps"][-1]["基本信息"]
+
+        for i_dict in response_data_details:
+            key = list(i_dict.keys())[0]
+            if '季节' in key:
+                details["season"] = i_dict[key]
+            elif '风格' in key:
+                details["style"] = i_dict[key]
+            elif '面料' in key or '材质' in key:
+                details["fabric"] = i_dict[key]
+            elif '年龄' in key:
+                details["applicable_age"] = i_dict[key]
+        # print(details)
+        return details
+
     @staticmethod
     def parse_json_from_string(json_string):
         """
@@ -213,7 +275,9 @@ class CrawlTaoBao:
                 # 将 JSON 字符串解析为字典
                 parsed_json = json.loads(json_str)
 
-                return parsed_json
+            else:
+                parsed_json = json.loads(json_string)
+            return parsed_json
         except json.JSONDecodeError as e:
             print(f"JSON 解析错误：{e}")
             return None
@@ -250,7 +314,14 @@ class CrawlTaoBao:
             if self.redis_client.json_get(dict1["item_id"]):
                 continue
 
-            dict2 = self.get_detail(dict1['item_url'])
+            detail = self.get_detail_taobao(dict1['item_url'])
+
+            if detail:
+                dict2 = detail
+                print("这是 淘宝 页面!!!")
+            else:
+                print("这是 天猫 页面!!!")
+                dict2 = self.get_detail_tianmao(dict1['item_url'], dict1['item_id'])
 
             dict1.update(dict2)
             if dict2:
@@ -281,6 +352,10 @@ class CrawlTaoBao:
             print(value)
             result_list.append(value)
 
+        # 将JSON数据转换为DataFrame
+        df = pd.json_normalize(result_list)
+        # 将DataFrame保存为CSV文件
+        df.to_csv('output_csv_file.csv', index=False, encoding='utf-8')
         return result_list
 
 
@@ -289,12 +364,14 @@ if __name__ == '__main__':
     print(f"cookie>>>>>>:\n{crawl_taobao.cookies}\n")
 
     # crawl_taobao.download_img('https://img.alicdn.com/imgextra/i1/31774561/O1CN01HHHX5d1jYzBhuQx7Z_!!0-saturn_solar.jpg')
-    # print(crawl_taobao.get_detail('https://click.simba.taobao.com/cc_im?p=%C5%AE%D7%B0&s=1709035793&k=845&e=v9sz85SYZ5A0JfADfC6GWNxq5XLbBhQqVkRa8TNEc9IGOLJ5waFYhr5iyOqoaigMotelTNSsD6OCpx7zDFWcEPpIPHv0qsIfM2tOEc0D1gibkb9DnRz6VneSKZQTAavpB2Txvn0h9zleCi6NAhmKNzx%2FQU1Tp6q3cHvoApmO7DaIqUUqzt8KYojv3nPbxRjrEwULzM%2BQCI2kb%2FwbG5zQ9F8G6TwsUX7GbaDNN2nPTZu7JkSqBObwtK9EYydVOmgLYoxzDnOQDPMUbLAJ1Q7wWZ8lKKwdJrktpDcwnHrMIMtdsljuu0gFXZsiXrgHYzizzGXd%2FPULTQkddGmv%2FEKpBSsmKBt%2FpTo66%2Fyo3i3EGJZfDklV%2F%2BL82BSQ3SyRWOUnWhIrW0TCNZF9pzA4bRPxmk8RR1ro3LNohJKxWlNM%2Bg8rtiA7WGYkxbIon1wABBlauAFaNoZvkA1Xi3qqaETRE1Edu9rX%2Bn6NXwCdbKJbygxW7zJ7DBceY1D5Ed2ivtUZhyiDkI3cbCxLTqWB3lm2EzEkpa9HDCwGjy0csr5IR9C1jx4fMUdjwmeD2wc27UPPD5xHP5FqpNhsnMf23niJaNdwOHosLhwc8PqLrOBs8FgC0BvNnAStPNcFnvAIbBG9oplUFNPjCnXFBy8jE8vS39%2FR3JTOQseoqL%2BypBSzrnFzTuIgYVouD5Dy08icAZr1LNzKt3lzp6hkKIh3HpEephoGoJjFB69EC5QBK3XeVEQ8Sxr67zuEW6zgOqtty8rYF0zFzBKnKIiKn0NEfWlBien6iz1NxWZIX67uFDTqTAsZFQ1O8aijFixj2GxdCR%2BYNdfOJB5mj8k%3D#detail'))
-
-    for i in range(5):
-        result = crawl_taobao.search_commodity("女装", i, 60)
+    # print(crawl_taobao.get_detail_taobao('https://click.simba.taobao.com/cc_im?p=%C5%AE%D7%B0&s=1709035793&k=845&e=v9sz85SYZ5A0JfADfC6GWNxq5XLbBhQqVkRa8TNEc9IGOLJ5waFYhr5iyOqoaigMotelTNSsD6OCpx7zDFWcEPpIPHv0qsIfM2tOEc0D1gibkb9DnRz6VneSKZQTAavpB2Txvn0h9zleCi6NAhmKNzx%2FQU1Tp6q3cHvoApmO7DaIqUUqzt8KYojv3nPbxRjrEwULzM%2BQCI2kb%2FwbG5zQ9F8G6TwsUX7GbaDNN2nPTZu7JkSqBObwtK9EYydVOmgLYoxzDnOQDPMUbLAJ1Q7wWZ8lKKwdJrktpDcwnHrMIMtdsljuu0gFXZsiXrgHYzizzGXd%2FPULTQkddGmv%2FEKpBSsmKBt%2FpTo66%2Fyo3i3EGJZfDklV%2F%2BL82BSQ3SyRWOUnWhIrW0TCNZF9pzA4bRPxmk8RR1ro3LNohJKxWlNM%2Bg8rtiA7WGYkxbIon1wABBlauAFaNoZvkA1Xi3qqaETRE1Edu9rX%2Bn6NXwCdbKJbygxW7zJ7DBceY1D5Ed2ivtUZhyiDkI3cbCxLTqWB3lm2EzEkpa9HDCwGjy0csr5IR9C1jx4fMUdjwmeD2wc27UPPD5xHP5FqpNhsnMf23niJaNdwOHosLhwc8PqLrOBs8FgC0BvNnAStPNcFnvAIbBG9oplUFNPjCnXFBy8jE8vS39%2FR3JTOQseoqL%2BypBSzrnFzTuIgYVouD5Dy08icAZr1LNzKt3lzp6hkKIh3HpEephoGoJjFB69EC5QBK3XeVEQ8Sxr67zuEW6zgOqtty8rYF0zFzBKnKIiKn0NEfWlBien6iz1NxWZIX67uFDTqTAsZFQ1O8aijFixj2GxdCR%2BYNdfOJB5mj8k%3D#detail'))
+    # print(len(crawl_taobao.redis_client.keys("crawl_taobao*")))
+    # crawl_taobao.get_detail_tianmao("https://detail.tmall.com/item.htm?id=654566291507&ns=1&abbucket=0")
+    for i in range(2500, 5000):
+        print(f"第{i}页码")
+        result = crawl_taobao.search_commodity("女装", i, 48)
         crawl_taobao.data_to_redis(result)
 
     # 获取redis数据
-    print(len(crawl_taobao.get_redis_data()))
+    # print(len(crawl_taobao.get_redis_data()))
     # print(crawl_taobao.get_redis_keys(), len(set(crawl_taobao.get_redis_keys())))

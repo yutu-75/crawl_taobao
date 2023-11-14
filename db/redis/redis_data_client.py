@@ -137,7 +137,7 @@ if __name__ == '__main__':
     # redis_client.json_set("qwq123", {"123": "123"})
     print(redis_client.json_get("crawl_taobao::730883376648"))
     # print(redis_client.json_get("crawl_taobao*"))
-    print(redis_client.keys("crawl_taobao*"))
+    print(len(redis_client.keys("crawl_taobao*")))
     # for i in range(5):
     #     ...
     #     print(redis_client.l_push("asx_data1", str(i)))
